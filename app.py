@@ -58,7 +58,6 @@ def get_recommendations(member_id):
     if user_row.empty:
         return {"error": "User not found"}
 
-    # Extract user details
     user_details = user_row.iloc[0][["Member_ID", "Gender", "Age", "Marital_Status", "Sect", "Caste", "State"]].to_dict()
     
     # Decode categorical values
@@ -83,11 +82,18 @@ def get_recommendations(member_id):
     eligible_profiles["Same_Sect"] = (eligible_profiles["Sect"] == user_row.iloc[0]["Sect"]).astype(int)
     eligible_profiles["Same_State"] = (eligible_profiles["State"] == user_row.iloc[0]["State"]).astype(int)
 
-    # Ensure we have only the model's required features
+    # Debugging: Print expected vs actual features
     model_features = bst.feature_names
-    X_test = eligible_profiles[model_features]
-    
+    print("🔹 Model expects features:", model_features)
+    print("🔹 Eligible profiles contain:", list(eligible_profiles.columns))
+
+    # Ensure missing features are added with zeros
+    for feature in model_features:
+        if feature not in eligible_profiles.columns:
+            eligible_profiles[feature] = 0  # Fill missing columns with 0s
+
     # Convert to DMatrix
+    X_test = eligible_profiles[model_features]
     dtest = xgb.DMatrix(X_test)
 
     # Get predictions
