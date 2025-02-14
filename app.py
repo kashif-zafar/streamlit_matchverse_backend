@@ -3,6 +3,7 @@ import pandas as pd
 import xgboost as xgb
 import requests
 import os
+import plotly.express as px
 from collections import Counter
 from sklearn.preprocessing import LabelEncoder
 
@@ -82,18 +83,11 @@ def get_recommendations(member_id):
     eligible_profiles["Same_Sect"] = (eligible_profiles["Sect"] == user_row.iloc[0]["Sect"]).astype(int)
     eligible_profiles["Same_State"] = (eligible_profiles["State"] == user_row.iloc[0]["State"]).astype(int)
 
-    # Debugging: Print expected vs actual features
+    # Ensure we have only the model's required features
     model_features = bst.feature_names
-    print("🔹 Model expects features:", model_features)
-    print("🔹 Eligible profiles contain:", list(eligible_profiles.columns))
-
-    # Ensure missing features are added with zeros
-    for feature in model_features:
-        if feature not in eligible_profiles.columns:
-            eligible_profiles[feature] = 0  # Fill missing columns with 0s
-
-    # Convert to DMatrix
     X_test = eligible_profiles[model_features]
+    
+    # Convert to DMatrix
     dtest = xgb.DMatrix(X_test)
 
     # Get predictions
@@ -135,16 +129,34 @@ if st.button("Get Recommendations"):
         if "error" in result:
             st.error(result["error"])
         else:
-            st.subheader("User Details")
+            st.subheader("📌 User Details")
             st.json(result["user_details"])
             
-            st.subheader("Recommended Profiles")
+            st.subheader("🎯 Recommended Profiles")
             st.dataframe(pd.DataFrame(result["recommended_profiles"]))
 
-            st.subheader("Statistics")
-            st.write("Age Distribution:", result["statistics"]["age_distribution"])
-            st.write("Sect Distribution:", result["statistics"]["sect_distribution"])
-            st.write("State Distribution:", result["statistics"]["state_distribution"])
-            st.write("Caste Distribution:", result["statistics"]["caste_distribution"])
+            # Plot graphs
+            st.subheader("📊 Statistics")
+
+            # Age Distribution
+            age_df = pd.DataFrame(result["statistics"]["age_distribution"].items(), columns=["Age", "Count"])
+            fig_age = px.bar(age_df, x="Age", y="Count", title="Age Distribution", color="Count", color_continuous_scale="Blues")
+            st.plotly_chart(fig_age, use_container_width=True)
+
+            # Caste Distribution
+            caste_df = pd.DataFrame(result["statistics"]["caste_distribution"].items(), columns=["Caste", "Count"])
+            fig_caste = px.bar(caste_df, x="Caste", y="Count", title="Caste Distribution", color="Count", color_continuous_scale="Reds")
+            st.plotly_chart(fig_caste, use_container_width=True)
+
+            # State Distribution
+            state_df = pd.DataFrame(result["statistics"]["state_distribution"].items(), columns=["State", "Count"])
+            fig_state = px.bar(state_df, x="State", y="Count", title="State Distribution", color="Count", color_continuous_scale="Greens")
+            st.plotly_chart(fig_state, use_container_width=True)
+
+            # Sect Distribution
+            sect_df = pd.DataFrame(result["statistics"]["sect_distribution"].items(), columns=["Sect", "Count"])
+            fig_sect = px.bar(sect_df, x="Sect", y="Count", title="Sect Distribution", color="Count", color_continuous_scale="Purples")
+            st.plotly_chart(fig_sect, use_container_width=True)
+
     else:
         st.error("Please enter a valid numeric Member ID.")
