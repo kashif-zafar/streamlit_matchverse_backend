@@ -93,7 +93,7 @@ def get_recommendations(member_id):
     # Statistics
     statistics = {
         "age_distribution": dict(Counter(recommended_profiles_df["Age"])),
-        # "sect_distribution": dict(Counter(recommended_profiles_df["Sect"])),
+        "sect_distribution": dict(Counter(recommended_profiles_df["Sect"])),
         "state_distribution": dict(Counter(recommended_profiles_df["State"])),
         "caste_distribution": dict(Counter(recommended_profiles_df["Caste"])),
     }
@@ -146,12 +146,12 @@ if st.button("Get Recommendations"):
                     st.plotly_chart(fig_state, use_container_width=True)
 
                 # Sect Distribution
-                sect_df = pd.DataFrame(result["statistics"]["sect_distribution"].items(), columns=["Sect", "Count"])
-                if not sect_df.empty:
-                    fig_sect = px.bar(sect_df, x="Sect", y="Count", title="Sect Distribution", color="Count", color_continuous_scale="Purples")
-                    st.plotly_chart(fig_sect, use_container_width=True)
-            else:
-                st.warning("No recommendations found for this user.")
+            #     sect_df = pd.DataFrame(result["statistics"]["sect_distribution"].items(), columns=["Sect", "Count"])
+            #     if not sect_df.empty:
+            #         fig_sect = px.bar(sect_df, x="Sect", y="Count", title="Sect Distribution", color="Count", color_continuous_scale="Purples")
+            #         st.plotly_chart(fig_sect, use_container_width=True)
+            # else:
+            #     st.warning("No recommendations found for this user.")
 
     else:
         st.error("Please enter a valid numeric Member ID.")
