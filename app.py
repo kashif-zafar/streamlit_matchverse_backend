@@ -5,18 +5,20 @@ import plotly.express as px
 from collections import Counter
 from sklearn.preprocessing import LabelEncoder
 
-# Streamlit App Title
-st.set_page_config(page_title="MatchVerse - AI Matchmaking Recommendations", layout="wide")
-st.title("🔍MatchVerse - AI Matchmaking Recommendations")
+# Set up Streamlit UI
+st.set_page_config(page_title="MatchVerse - AI Matchmaking", layout="wide")
+st.title("🔍 MatchVerse - AI Matchmaking Recommendations")
 
-# **Set local file paths**
-users_csv_path = "users.csv"
-model_json_path = "recommendation_model.json"
-
-
+# **Set file paths**
+USERS_CSV_PATH = "users.csv"
+MODEL_JSON_PATH = "recommendation_model.json"
 
 # **Load user metadata**
-users_df = pd.read_csv("users.csv")
+@st.cache_data
+def load_users():
+    return pd.read_csv(USERS_CSV_PATH)
+
+users_df = load_users()
 
 # **Label Encoding for categorical variables**
 label_encoders = {}
@@ -27,7 +29,10 @@ for col in ["Gender", "Marital_Status", "Sect", "Caste", "State"]:
 
 # **Load trained XGBoost model**
 bst = xgb.Booster()
-bst.load_model("recommendation_model.json")
+bst.load_model(MODEL_JSON_PATH)
+
+# **Manually computed features**
+MODEL_FEATURES = ["Age_Diff", "Same_Caste", "Same_Sect", "Same_State", "Target_Popularity"]
 
 def get_recommendations(member_id):
     """Fetch recommendations for a given user."""
@@ -37,35 +42,34 @@ def get_recommendations(member_id):
 
     user_details = user_row.iloc[0][["Member_ID", "Gender", "Age", "Marital_Status", "Sect", "Caste", "State"]].to_dict()
 
-    # **Decode categorical values for human readability**
+    # **Decode categorical values for readability**
     for col in ["Gender", "Marital_Status", "Sect", "Caste", "State"]:
         user_details[col] = label_encoders[col].inverse_transform([user_details[col]])[0]
 
     user_gender = user_row.iloc[0]["Gender"]
     user_age = user_row.iloc[0]["Age"]
-
-    # **Get opposite gender**
-    opposite_gender_encoded = 1 - user_gender
+    user_caste = user_row.iloc[0]["Caste"]
+    user_sect = user_row.iloc[0]["Sect"]
+    user_state = user_row.iloc[0]["State"]
 
     # **Filter opposite-gender users**
+    opposite_gender_encoded = 1 - user_gender
     eligible_profiles = users_df[users_df["Gender"] == opposite_gender_encoded].copy()
+
     if eligible_profiles.empty:
         return {"user_details": user_details, "recommended_profiles": [], "statistics": {}}
 
-    # **Compute required features**
+    # **Compute necessary features**
     eligible_profiles["Age_Diff"] = abs(eligible_profiles["Age"] - user_age)
-    eligible_profiles["Same_Caste"] = (eligible_profiles["Caste"] == user_row.iloc[0]["Caste"]).astype(int)
-    eligible_profiles["Same_Sect"] = (eligible_profiles["Sect"] == user_row.iloc[0]["Sect"]).astype(int)
-    eligible_profiles["Same_State"] = (eligible_profiles["State"] == user_row.iloc[0]["State"]).astype(int)
+    eligible_profiles["Same_Caste"] = (eligible_profiles["Caste"] == user_caste).astype(int)
+    eligible_profiles["Same_Sect"] = (eligible_profiles["Sect"] == user_sect).astype(int)
+    eligible_profiles["Same_State"] = (eligible_profiles["State"] == user_state).astype(int)
+    eligible_profiles["Target_Popularity"] = 0.5  # Placeholder for now
 
-    # **Ensure missing features are added with zeros**
-    model_features = bst.feature_names
-    for feature in model_features:
-        if feature not in eligible_profiles.columns:
-            eligible_profiles[feature] = 0
+    # **Ensure feature alignment for model input**
+    X_test = eligible_profiles[MODEL_FEATURES]
 
     # **Convert to DMatrix for XGBoost**
-    X_test = eligible_profiles[model_features]
     dtest = xgb.DMatrix(X_test)
 
     # **Get predictions**
