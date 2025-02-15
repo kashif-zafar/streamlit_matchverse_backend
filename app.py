@@ -1,157 +1,100 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import xgboost as xgb
-import plotly.express as px
-from collections import Counter
-from sklearn.preprocessing import LabelEncoder
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-st.set_page_config(page_title="MatchVerse - AI Matchmaking", layout="wide")
-st.title("🔍 MatchVerse - AI Matchmaking Recommendations")
-
-# File paths
-USERS_CSV_PATH = "users.csv"
-INTERACTIONS_CSV_PATH = "interactions.csv"
-MODEL_JSON_PATH = "recommendation_model.json"
-
+# Load Data
 @st.cache_data
-def load_users():
-    return pd.read_csv(USERS_CSV_PATH)
+def load_data():
+    users_df = pd.read_csv("users.csv")
+    interactions_df = pd.read_csv("interactions.csv")
+    return users_df, interactions_df
 
-@st.cache_data
-def load_interactions():
-    return pd.read_csv(INTERACTIONS_CSV_PATH)
+users_df, interactions_df = load_data()
 
-users_df = load_users()
-interactions_df = load_interactions()
+# Load trained XGBoost Model
+@st.cache_resource
+def load_model():
+    model = xgb.XGBClassifier()
+    model.load_model("recommendation_model.json")
+    return model
 
-# Label Encoding for categorical features
-label_encoders = {}
-for col in ["Gender", "Marital_Status", "Sect", "Caste", "State"]:
-    le = LabelEncoder()
-    users_df[col] = le.fit_transform(users_df[col])
-    label_encoders[col] = le
+model = load_model()
 
-# Load trained XGBoost model
-bst = xgb.Booster()
-bst.load_model(MODEL_JSON_PATH)
-
-# Features used in the model
-MODEL_FEATURES = ["Age_Diff", "Same_Caste", "Same_Sect", "Same_State", "Target_Popularity"]
-
-# Precompute Target Popularity
-interaction_counts = interactions_df["Target_ID"].value_counts()
-
-def get_recommendations(member_id):
-    """Fetch recommendations based on the trained model."""
+# Function to generate recommendations
+def generate_recommendations(member_id, top_n=10):
+    """Returns top N recommended profiles for a given member ID"""
+    
+    # Get user details
     user_row = users_df[users_df["Member_ID"] == member_id]
     if user_row.empty:
-        return {"error": "User not found"}
+        return None, "Member ID not found."
+    
+    user_data = user_row.iloc[0]
+    
+    # Filter opposite gender profiles
+    opposite_gender = 1 if user_data["Gender"] == 0 else 0
+    candidate_profiles = users_df[users_df["Gender"] == opposite_gender].copy()
 
-    user_meta = user_row.iloc[0]
-    user_details = {
-        "Member_ID": user_meta["Member_ID"],
-        "Gender": label_encoders["Gender"].inverse_transform([user_meta["Gender"]])[0],
-        "Age": user_meta["Age"],
-        "Marital_Status": label_encoders["Marital_Status"].inverse_transform([user_meta["Marital_Status"]])[0],
-        "Sect": label_encoders["Sect"].inverse_transform([user_meta["Sect"]])[0],
-        "Caste": label_encoders["Caste"].inverse_transform([user_meta["Caste"]])[0],
-        "State": label_encoders["State"].inverse_transform([user_meta["State"]])[0],
-    }
+    # Ensure we exclude past interactions
+    interacted_profiles = interactions_df[interactions_df["Member_ID"] == member_id]["Target_ID"].tolist()
+    candidate_profiles = candidate_profiles[~candidate_profiles["Member_ID"].isin(interacted_profiles)]
+    
+    if candidate_profiles.empty:
+        return None, "No profiles available for recommendation."
 
-    # Get opposite gender
-    opposite_gender_encoded = 1 - user_meta["Gender"]
-    eligible_profiles = users_df[users_df["Gender"] == opposite_gender_encoded].copy()
+    # Feature Engineering for Recommendations
+    candidate_profiles["Age_Diff"] = abs(candidate_profiles["Age"] - user_data["Age"])
+    candidate_profiles["Same_Caste"] = (candidate_profiles["Caste"] == user_data["Caste"]).astype(int)
+    candidate_profiles["Same_Sect"] = (candidate_profiles["Sect"] == user_data["Sect"]).astype(int)
+    candidate_profiles["Same_State"] = (candidate_profiles["State"] == user_data["State"]).astype(int)
+    
+    # Popularity score
+    interaction_counts = interactions_df["Target_ID"].value_counts()
+    candidate_profiles["Target_Popularity"] = candidate_profiles["Member_ID"].map(interaction_counts).fillna(0)
 
-    # Exclude past interactions
-    interacted_users = set(interactions_df[interactions_df["Member_ID"] == member_id]["Target_ID"])
-    fresh_profiles = eligible_profiles[~eligible_profiles["Member_ID"].isin(interacted_users)].copy()
+    # Define feature set
+    feature_columns = ["Age_Diff", "Same_Caste", "Same_Sect", "Same_State", "Target_Popularity"]
+    X_test = candidate_profiles[feature_columns]
 
-    if fresh_profiles.empty:
-        return {"user_details": user_details, "recommended_profiles": [], "statistics": {}}
+    # Get predictions
+    candidate_profiles["Score"] = model.predict_proba(X_test)[:, 1]
 
-    # Feature Engineering
-    fresh_profiles["Age_Diff"] = abs(fresh_profiles["Age"] - user_meta["Age"])
-    fresh_profiles["Same_Caste"] = (fresh_profiles["Caste"] == user_meta["Caste"]).astype(int)
-    fresh_profiles["Same_Sect"] = (fresh_profiles["Sect"] == user_meta["Sect"]).astype(int)
-    fresh_profiles["Same_State"] = (fresh_profiles["State"] == user_meta["State"]).astype(int)
-    fresh_profiles["Target_Popularity"] = fresh_profiles["Member_ID"].map(interaction_counts).fillna(0)
+    # Rank recommendations
+    recommendations = candidate_profiles.sort_values(by="Score", ascending=False).head(top_n)
 
-    # Prepare data for model
-    X_test = fresh_profiles[MODEL_FEATURES]
-    dtest = xgb.DMatrix(X_test)
-
-    # Predict scores
-    fresh_profiles["Score"] = bst.predict(dtest)
-
-    # Get Top 100 recommendations
-    recommended_profiles_df = fresh_profiles.sort_values(by="Score", ascending=False).head(100)
-
-    # Decode categorical features
-    for col in ["Marital_Status", "Sect", "Caste", "State"]:
-        recommended_profiles_df[col] = label_encoders[col].inverse_transform(recommended_profiles_df[col].astype(int))
-
-    # Statistics
-    statistics = {
-        "age_distribution": dict(Counter(recommended_profiles_df["Age"])),
-        "sect_distribution": dict(Counter(recommended_profiles_df["Sect"])),
-        "state_distribution": dict(Counter(recommended_profiles_df["State"])),
-        "caste_distribution": dict(Counter(recommended_profiles_df["Caste"])),
-    }
-
-    return {
-        "user_details": user_details,
-        "recommended_profiles": recommended_profiles_df.to_dict(orient="records"),
-        "statistics": statistics,
-    }
+    return recommendations, None
 
 # Streamlit UI
-member_id = st.text_input("Enter Member ID:", "")
+st.title("💍 AI Matchmaking System")
 
+# Member ID Input
+member_id = st.number_input("Enter Member ID:", min_value=int(users_df["Member_ID"].min()), 
+                            max_value=int(users_df["Member_ID"].max()), step=1)
+
+# Button to fetch recommendations
 if st.button("Get Recommendations"):
-    if member_id.isdigit():
-        member_id = int(member_id)
-        result = get_recommendations(member_id)
-        
-        if "error" in result:
-            st.error(result["error"])
-        else:
-            st.subheader("📌 User Details")
-            st.json(result["user_details"])
-
-            # Show recommended profiles
-            st.subheader("🎯 Recommended Profiles")
-            recommendations_df = pd.DataFrame(result["recommended_profiles"])
-            if not recommendations_df.empty:
-                st.dataframe(recommendations_df)
-
-                # 📊 Charts
-                st.subheader("📊 Statistics")
-
-                # Age Distribution
-                age_df = pd.DataFrame(result["statistics"]["age_distribution"].items(), columns=["Age", "Count"])
-                if not age_df.empty:
-                    fig_age = px.bar(age_df, x="Age", y="Count", title="Age Distribution", color="Count", color_continuous_scale="Blues")
-                    st.plotly_chart(fig_age, use_container_width=True)
-
-                # Caste Distribution
-                caste_df = pd.DataFrame(result["statistics"]["caste_distribution"].items(), columns=["Caste", "Count"])
-                if not caste_df.empty:
-                    fig_caste = px.bar(caste_df, x="Caste", y="Count", title="Caste Distribution", color="Count", color_continuous_scale="Reds")
-                    st.plotly_chart(fig_caste, use_container_width=True)
-
-                # State Distribution
-                state_df = pd.DataFrame(result["statistics"]["state_distribution"].items(), columns=["State", "Count"])
-                if not state_df.empty:
-                    fig_state = px.bar(state_df, x="State", y="Count", title="State Distribution", color="Count", color_continuous_scale="Greens")
-                    st.plotly_chart(fig_state, use_container_width=True)
-
-                # Sect Distribution
-                sect_df = pd.DataFrame(result["statistics"]["sect_distribution"].items(), columns=["Sect", "Count"])
-                if not sect_df.empty:
-                    fig_sect = px.bar(sect_df, x="Sect", y="Count", title="Sect Distribution", color="Count", color_continuous_scale="Purples")
-                    st.plotly_chart(fig_sect, use_container_width=True)
-            else:
-                st.warning("No recommendations found for this user.")
-
+    recommendations, error = generate_recommendations(member_id, top_n=10)
+    
+    if error:
+        st.warning(error)
     else:
-        st.error("Please enter a valid numeric Member ID.")
+        st.subheader("🔍 Top Matches:")
+        st.dataframe(recommendations[["Member_ID", "Age", "Caste", "Sect", "State", "Score"]])
+
+        # 📊 Visualization
+        st.subheader("📊 Recommendation Insights")
+
+        fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+
+        # Age Distribution
+        sns.histplot(recommendations["Age"], bins=10, kde=True, ax=ax[0])
+        ax[0].set_title("Age Distribution of Recommended Profiles")
+
+        # Caste Distribution
+        sns.countplot(y=recommendations["Caste"], order=recommendations["Caste"].value_counts().index, ax=ax[1])
+        ax[1].set_title("Caste Distribution")
+
+        st.pyplot(fig)
