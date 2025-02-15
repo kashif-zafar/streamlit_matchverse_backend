@@ -50,12 +50,12 @@ def get_recommendations(member_id):
     user_meta = user_row.iloc[0]
     user_details = {
         "Member_ID": int(user_meta["Member_ID"]),
-        "Gender": label_encoders["Gender"].inverse_transform([user_meta["Gender"]])[0],
+        "Gender": label_encoders["Gender"].inverse_transform([int(user_meta["Gender"])])[0],
         "Age": int(user_meta["Age"]),
-        "Marital_Status": label_encoders["Marital_Status"].inverse_transform([user_meta["Marital_Status"]])[0],
-        "Sect": label_encoders["Sect"].inverse_transform([user_meta["Sect"]])[0],
-        "Caste": label_encoders["Caste"].inverse_transform([user_meta["Caste"]])[0],
-        "State": label_encoders["State"].inverse_transform([user_meta["State"]])[0],
+        "Marital_Status": label_encoders["Marital_Status"].inverse_transform([int(user_meta["Marital_Status"])])[0],
+        "Sect": label_encoders["Sect"].inverse_transform([int(user_meta["Sect"])])[0],
+        "Caste": label_encoders["Caste"].inverse_transform([int(user_meta["Caste"])])[0],
+        "State": label_encoders["State"].inverse_transform([int(user_meta["State"])])[0],
     }
 
     # Get opposite gender
@@ -87,13 +87,12 @@ def get_recommendations(member_id):
     recommended_profiles_df = fresh_profiles.sort_values(by="Score", ascending=False).head(100)
 
     # Decode categorical features
-    for col in ["Marital_Status", "Sect", "Caste", "State"]:
+    for col in ["Gender", "Marital_Status", "Sect", "Caste", "State"]:
         recommended_profiles_df[col] = label_encoders[col].inverse_transform(recommended_profiles_df[col].astype(int))
 
     # Statistics
     statistics = {
         "age_distribution": dict(Counter(recommended_profiles_df["Age"])),
-        "sect_distribution": dict(Counter(recommended_profiles_df["Sect"])),
         "state_distribution": dict(Counter(recommended_profiles_df["State"])),
         "caste_distribution": dict(Counter(recommended_profiles_df["Caste"])),
     }
@@ -144,14 +143,7 @@ if st.button("Get Recommendations"):
                 if not state_df.empty:
                     fig_state = px.bar(state_df, x="State", y="Count", title="State Distribution", color="Count", color_continuous_scale="Greens")
                     st.plotly_chart(fig_state, use_container_width=True)
-
-                # Sect Distribution
-            #     sect_df = pd.DataFrame(result["statistics"]["sect_distribution"].items(), columns=["Sect", "Count"])
-            #     if not sect_df.empty:
-            #         fig_sect = px.bar(sect_df, x="Sect", y="Count", title="Sect Distribution", color="Count", color_continuous_scale="Purples")
-            #         st.plotly_chart(fig_sect, use_container_width=True)
-            # else:
-            #     st.warning("No recommendations found for this user.")
-
+            else:
+                st.warning("No recommendations found for this user.")
     else:
         st.error("Please enter a valid numeric Member ID.")
