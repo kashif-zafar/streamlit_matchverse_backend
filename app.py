@@ -93,7 +93,7 @@ def get_recommendations(member_id):
     # Statistics
     statistics = {
         "age_distribution": dict(Counter(recommended_profiles_df["Age"])),
-        "sect_distribution": dict(Counter(recommended_profiles_df["Sect"])),
+        # "sect_distribution": dict(Counter(recommended_profiles_df["Sect"])),
         "state_distribution": dict(Counter(recommended_profiles_df["State"])),
         "caste_distribution": dict(Counter(recommended_profiles_df["Caste"])),
     }
