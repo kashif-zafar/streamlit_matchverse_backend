@@ -49,9 +49,9 @@ def get_recommendations(member_id):
 
     user_meta = user_row.iloc[0]
     user_details = {
-        "Member_ID": user_meta["Member_ID"],
+        "Member_ID": int(user_meta["Member_ID"]),
         "Gender": label_encoders["Gender"].inverse_transform([user_meta["Gender"]])[0],
-        "Age": user_meta["Age"],
+        "Age": int(user_meta["Age"]),
         "Marital_Status": label_encoders["Marital_Status"].inverse_transform([user_meta["Marital_Status"]])[0],
         "Sect": label_encoders["Sect"].inverse_transform([user_meta["Sect"]])[0],
         "Caste": label_encoders["Caste"].inverse_transform([user_meta["Caste"]])[0],
